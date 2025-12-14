@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>전도 활동 보고 종합기</title>
+  <title>전도 일일 활동 보고 종합</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f7f7f7; padding:20px; }
@@ -16,11 +16,11 @@
 <body>
   <h1>🌳 전도 일일 활동 보고 종합 🌳</h1>
 
-  <p>아래에 <b>원본 보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
+  <p>아래에 <b> 보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
   <textarea id="input"></textarea>
 
   <div style="margin-top:10px;">
-    <button onclick="processReport()">종합 생성</button>
+    <button onclick="processReport()">✅ 종합하기</button>
     <button onclick="copyResult()">📋 결과 복사</button>
   </div>
 
@@ -86,13 +86,61 @@ function processReport() {
 
   document.getElementById('output').textContent = outputLines.join('\n');
 
-  // 경고 생성
-  let warningText = '';
+  // 경고 생성 (가독성 개선 + 찾기/섭외 동일 구역 허용)
+  let warningBlocks = [];
 
+  // 1) .5 단독 경고
   Object.entries(halfMap).forEach(([name, arr]) => {
     if (arr.length === 1) {
-      warningText += `• ${name} → ${arr[0].area}구역 (${arr[0].column})\n`;
+      warningBlocks.push(`• ${name}
+  - ${arr[0].area}구역 → ${arr[0].column}`);
     }
+  });
+
+  // 2) 같은 이름, 다른 칸 중복 (단, 같은 구역의 '당일 찾기+당일 섭외'는 허용)
+  Object.entries(nameMap).forEach(([name, arr]) => {
+    const filtered = arr.filter(a => a.column !== '섭외자보유');
+    if (filtered.length < 2) return;
+
+    const byArea = {};
+    filtered.forEach(a => {
+      if (!byArea[a.area]) byArea[a.area] = new Set();
+      byArea[a.area].add(a.column);
+    });
+
+    let problemEntries = [];
+
+    Object.entries(byArea).forEach(([area, cols]) => {
+      const colList = [...cols];
+      // 허용: 같은 구역에서 '당일 찾기' + '당일 섭외'만 있는 경우
+      if (colList.length === 2 && colList.includes('당일 찾기') && colList.includes('당일 섭외')) return;
+      if (colList.length > 1) {
+        colList.forEach(c => problemEntries.push({ area, column: c }));
+      }
+    });
+
+    if (problemEntries.length) {
+      let block = `• ${name}`;
+      problemEntries.forEach(p => {
+        block += `
+  - ${p.area}구역 → ${p.column}`;
+      });
+      warningBlocks.push(block);
+    }
+  });
+
+  const warnDiv = document.getElementById('warnings');
+  if (warningBlocks.length) {
+    warnDiv.style.display = 'block';
+    warnDiv.textContent = '⚠️ 확인 필요 사항
+
+' + warningBlocks.join('
+
+');
+  } else {
+    warnDiv.style.display = 'none';
+  }
+}
   });
 
   Object.entries(nameMap).forEach(([name, arr]) => {
