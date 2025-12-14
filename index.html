@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>전도 일일 활동 보고 종합</title>
+  <title>🍽️ 전도 일일 활동 보고 종합 🍽️</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f7f7f7; padding:20px; }
@@ -10,13 +10,13 @@
     textarea { width:100%; min-height:220px; padding:12px; font-size:14px; box-sizing:border-box; }
     button { padding:10px 14px; font-size:14px; margin-right:8px; cursor:pointer; }
     .result { white-space:pre-wrap; background:#fff; padding:12px; margin-top:12px; border-radius:6px; }
-    .warning { margin-top:16px; padding:12px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; white-space:pre-wrap; }
+    .warning { margin-top:16px; padding:12px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; }
   </style>
 </head>
 <body>
-  <h1>🌳 전도 일일 활동 보고 종합 🌳</h1>
+  <h1>🍽️ 전도 일일 활동 보고 종합 🍽️</h1>
 
-  <p>아래에 <b>보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
+  <p>아래에 <b>원본 보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
   <textarea id="input"></textarea>
 
   <div style="margin-top:10px;">
@@ -32,104 +32,106 @@
 <script>
 function processReport() {
   const input = document.getElementById('input').value;
-  if (!input.trim()) return;
-
   const lines = input.split(/\n/);
 
   const headers = ['섭외자보유','당일 찾기','당일 섭외','당일 만남','당일 단계향상 만남','상담따기','말씀따기','센터확답'];
   const totals = Array(headers.length).fill(0);
-  const nameMap = {};
-  const halfMap = {};
+
+  // name -> area -> Set(columns)
+  const roleMap = {};
+  const halfCount = {};
 
   let outputLines = [];
 
-  for (const line of lines) {
-    if (!/^\d+\//.test(line)) continue;
+  for (let line of lines) {
+    if (/^\d+\//.test(line)) {
+      const cols = line.split('/');
+      const area = cols[0];
 
-    const cols = line.split('/');
-    const area = cols[0];
+      headers.forEach((header, i) => {
+        const cell = cols[i + 2] || '0';
+        const matches = [...cell.matchAll(/([0-9.]+)\(([^)]+)\)/g)];
 
-    headers.forEach((_, i) => {
-      const cell = cols[i + 2] || '0';
-      const matches = [...cell.matchAll(/([0-9.]+)\(([^)]+)\)/g)];
+        if (matches.length === 0) {
+          const val = parseFloat(cell);
+          if (!isNaN(val)) totals[i] += val;
+        } else {
+          matches.forEach(m => {
+            const val = parseFloat(m[1]);
+            totals[i] += val;
+            const name = m[2].replace(/[0-9.]/g,'').trim();
 
-      if (matches.length === 0) {
-        const v = parseFloat(cell);
-        if (!isNaN(v)) totals[i] += v;
-      } else {
-        matches.forEach(m => {
-          const v = parseFloat(m[1]);
-          if (!isNaN(v)) totals[i] += v;
+            if (!roleMap[name]) roleMap[name] = {};
+            if (!roleMap[name][area]) roleMap[name][area] = new Set();
+            roleMap[name][area].add(header);
 
-          const name = m[2].replace(/[0-9.]/g, '').trim();
-          if (!nameMap[name]) nameMap[name] = [];
-          nameMap[name].push({ area, column: headers[i] });
-
-          if (v === 0.5) {
-            if (!halfMap[name]) halfMap[name] = [];
-            halfMap[name].push({ area, column: headers[i] });
-          }
-        });
-      }
-    });
+            if (val === 0.5) {
+              halfCount[name] = (halfCount[name] || 0) + 1;
+            }
+          });
+        }
+      });
+    }
   }
 
+  // 종합 줄 생성 (마지막 3칸 이름 표시)
   const totalLine = '종합/' + totals.map((v, i) => {
     if (i >= 5) {
-      const names = Object.entries(nameMap)
-        .filter(([_, arr]) => arr.some(a => a.column === headers[i]))
-        .map(([n]) => n);
+      const names = Object.entries(roleMap)
+        .filter(([_, areas]) => Object.values(areas).some(set => set.has(headers[i])))
+        .map(([name]) => name);
       return names.length ? `${v}(${[...new Set(names)].join(' ')})` : `${v}`;
     }
     return `${v}`;
   }).join('/');
 
-  lines.forEach(l => {
-    if (l.startsWith('종합/')) outputLines.push(totalLine);
-    else outputLines.push(l);
-  });
+  for (let line of lines) {
+    if (line.startsWith('종합/')) outputLines.push(totalLine);
+    else outputLines.push(line);
+  }
 
   document.getElementById('output').textContent = outputLines.join('\n');
 
-  // ===== 확인 필요 사항 =====
+  // ⚠️ 경고 생성
   let warningBlocks = [];
 
   // 1) .5 단독
-  Object.entries(halfMap).forEach(([name, arr]) => {
-    if (arr.length === 1) {
-      warningBlocks.push(`• ${name}\n  - ${arr[0].area}구역 → ${arr[0].column}`);
+  Object.entries(halfCount).forEach(([name, count]) => {
+    if (count === 1) {
+      const areas = roleMap[name];
+      const area = Object.keys(areas)[0];
+      const cols = [...areas[area]].join(', ');
+      warningBlocks.push(`• ${name}\n  - ${area}구역 → ${cols}`);
     }
   });
 
-  // 2) 같은 이름, 다른 구역, 역할 구성이 다르면 경고
-  Object.entries(nameMap).forEach(([name, arr]) => {
-    const filtered = arr.filter(a => a.column !== '섭외자보유');
-    if (filtered.length < 2) return;
+  // 2) 다른 구역 + 역할 구성 불일치 (섭외자보유 제외)
+  Object.entries(roleMap).forEach(([name, areas]) => {
+    const areaKeys = Object.keys(areas);
+    if (areaKeys.length < 2) return;
 
-    const byArea = {};
-    filtered.forEach(a => {
-      if (!byArea[a.area]) byArea[a.area] = new Set();
-      byArea[a.area].add(a.column);
+    const filtered = areaKeys.map(a => ({
+      area: a,
+      roles: new Set([...areas[a]].filter(r => r !== '섭외자보유'))
+    }));
+
+    const base = filtered[0].roles;
+    let mismatch = false;
+
+    filtered.forEach(f => {
+      if (f.roles.size !== base.size) mismatch = true;
+      for (let r of f.roles) if (!base.has(r)) mismatch = true;
     });
 
-    const areas = Object.keys(byArea);
-    if (areas.length < 2) return;
-
-    const base = [...byArea[areas[0]]].sort().join('|');
-    let diff = false;
-
-    for (let i = 1; i < areas.length; i++) {
-      const cur = [...byArea[areas[i]]].sort().join('|');
-      if (cur !== base) { diff = true; break; }
+    if (mismatch) {
+      let block = `• ${name}`;
+      filtered.forEach(f => {
+        if (f.roles.size) {
+          block += `\n  - ${f.area}구역 → ${[...f.roles].join(', ')}`;
+        }
+      });
+      warningBlocks.push(block);
     }
-
-    if (!diff) return;
-
-    let block = `• ${name}`;
-    Object.entries(byArea).forEach(([area, cols]) => {
-      block += `\n  - ${area}구역 → ${[...cols].join(', ')}`;
-    });
-    warningBlocks.push(block);
   });
 
   const warnDiv = document.getElementById('warnings');
@@ -143,8 +145,7 @@ function processReport() {
 
 function copyResult() {
   const text = document.getElementById('output').textContent;
-  if (!text) return;
-  navigator.clipboard.writeText(text);
+  navigator.clipboard.writeText(text).then(() => alert('✅ 복사가 완료되었습니다.'));
 }
 </script>
 </body>
