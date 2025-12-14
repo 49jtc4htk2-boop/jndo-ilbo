@@ -2,87 +2,47 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>전도 활동 보고 종합</title>
+  <title>전도 활동 보고 종합기</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background:#f7f7f7;
-      padding:20px;
-    }
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f7f7f7; padding:20px; }
     h1 { font-size: 1.4rem; }
-    textarea {
-      width:100%;
-      min-height:220px;
-      padding:12px;
-      font-size:14px;
-      box-sizing:border-box;
-    }
-    button {
-      padding:10px 14px;
-      font-size:14px;
-      margin-right:8px;
-      cursor:pointer;
-    }
-    .result {
-      white-space:pre-wrap;
-      background:#fff;
-      padding:12px;
-      margin-top:12px;
-      border-radius:6px;
-    }
-    .warning {
-      margin-top:16px;
-      padding:12px;
-      background:#fff3cd;
-      border:1px solid #ffeeba;
-      border-radius:6px;
-      white-space:pre-wrap;
-    }
+    textarea { width:100%; min-height:220px; padding:12px; font-size:14px; box-sizing:border-box; }
+    button { padding:10px 14px; font-size:14px; margin-right:8px; cursor:pointer; }
+    .result { white-space:pre-wrap; background:#fff; padding:12px; margin-top:12px; border-radius:6px; }
+    .warning { margin-top:16px; padding:12px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; }
   </style>
 </head>
 <body>
+  <h1>🌳 전도 활동 보고 종합기</h1>
 
-<h1>🌳 전도 활동 보고 종합 🌳</h1>
+  <p>아래에 <b>원본 보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
+  <textarea id="input"></textarea>
 
-<p>아래에 <b>보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
-<textarea id="input"></textarea>
+  <div style="margin-top:10px;">
+    <button onclick="processReport()">종합 생성</button>
+    <button onclick="copyResult()">📋 결과 복사</button>
+  </div>
 
-<div style="margin-top:10px;">
-  <button onclick="processReport()">종합하기</button>
-  <button onclick="copyResult()">📋 결과 복사</button>
-</div>
+  <h3>📋 복사될 최종 결과</h3>
+  <div id="output" class="result"></div>
 
-<h3>📋 종합 결과</h3>
-<div id="output" class="result"></div>
-
-<div id="warnings" class="warning" style="display:none;"></div>
+  <div id="warnings" class="warning" style="display:none;"></div>
 
 <script>
 function processReport() {
   const input = document.getElementById('input').value;
   const lines = input.split(/\n/);
 
-  const headers = [
-    '섭외자보유',
-    '당일 찾기',
-    '당일 섭외',
-    '당일 만남',
-    '당일 단계향상 만남',
-    '상담따기',
-    '말씀따기',
-    '센터확답'
-  ];
-
+  const headers = ['섭외자보유','당일 찾기','당일 섭외','당일 만남','당일 단계향상 만남','상담따기','말씀따기','센터확답'];
   const totals = Array(headers.length).fill(0);
 
-  // name -> area -> Set(roles)
+  // name -> area -> [{header, value}]
   const roleMap = {};
+  const halfMap = {}; // name -> { area -> count }
+
   let outputLines = [];
 
-  /* =====================
-     데이터 파싱
-  ===================== */
   for (let line of lines) {
     if (/^\d+\//.test(line)) {
       const cols = line.split('/');
@@ -99,96 +59,77 @@ function processReport() {
           matches.forEach(m => {
             const val = parseFloat(m[1]);
             totals[i] += val;
-
-            const name = m[2].replace(/[0-9.]/g, '').trim();
+            const raw = m[2].trim();
+            const name = raw.replace(/[0-9.]/g,'').trim();
 
             if (!roleMap[name]) roleMap[name] = {};
-            if (!roleMap[name][area]) roleMap[name][area] = new Set();
-            roleMap[name][area].add(header);
+            if (!roleMap[name][area]) roleMap[name][area] = [];
+            roleMap[name][area].push({ header, value: val });
+
+            if (val === 0.5) {
+              if (!halfMap[name]) halfMap[name] = {};
+              halfMap[name][area] = (halfMap[name][area] || 0) + 1;
+            }
           });
         }
       });
     }
   }
 
-  /* =====================
-     종합 줄 생성
-     (마지막 3칸 이름 표시)
-  ===================== */
-  const totalLine =
-    '종합/' +
-    totals.map((v, i) => {
-      if (i >= 5) {
-        const names = Object.entries(roleMap)
-          .filter(([_, areas]) =>
-            Object.values(areas).some(set => set.has(headers[i]))
-          )
-          .map(([name]) => name);
-
-        return names.length
-          ? `${v}(${[...new Set(names)].join(' ')})`
-          : `${v}`;
-      }
-      return `${v}`;
-    }).join('/');
+  // 종합 줄 생성 (마지막 3칸 이름 표시)
+  const totalLine = '종합/' + totals.map((v, i) => {
+    if (i >= 5) {
+      const names = Object.entries(roleMap)
+        .filter(([_, areas]) => Object.values(areas).some(arr => arr.some(o => o.header === headers[i])))
+        .map(([name]) => name);
+      return names.length ? `${v}(${[...new Set(names)].join(' ')})` : `${v}`;
+    }
+    return `${v}`;
+  }).join('/');
 
   for (let line of lines) {
     if (line.startsWith('종합/')) outputLines.push(totalLine);
     else outputLines.push(line);
   }
 
-  document.getElementById('output').textContent =
-    outputLines.join('\n');
+  document.getElementById('output').textContent = outputLines.join('\n');
 
-  /* =====================
-     ⚠️ 경고 판단 (최종 기준)
-     ===================== */
-  const warningLines = [];
+  // ⚠️ 경고 판단
+  let warningBlocks = [];
 
   Object.entries(roleMap).forEach(([name, areas]) => {
-    const areaEntries = Object.entries(areas)
-      .map(([area, roles]) => ({
-        area,
-        roles: [...roles].filter(r => r !== '섭외자보유')
-      }))
-      .filter(e => e.roles.length > 0);
+    const areaKeys = Object.keys(areas);
+    if (areaKeys.length < 2) return;
 
-    if (areaEntries.length < 2) return;
+    // 1️⃣ .5 예외 조건: 서로 다른 2구역에서 각각 한 번씩만 .5
+    if (halfMap[name]) {
+      const halfAreas = Object.keys(halfMap[name]);
+      const validHalf = halfAreas.length === 2 && halfAreas.every(a => halfMap[name][a] === 1);
+      if (validHalf) return; // 정상 처리
+    }
 
-    const flattened = [];
+    // 2️⃣ 다른 구역 + 다른 칸 여부 판단 (섭외자보유 제외)
+    let roleSet = new Set();
+    let detail = [];
 
-    areaEntries.forEach(e => {
-      // 같은 구역 내 찾기 + 섭외만 있는 경우 허용
-      if (
-        e.roles.length === 2 &&
-        e.roles.includes('당일 찾기') &&
-        e.roles.includes('당일 섭외')
-      ) return;
-
-      e.roles.forEach(role => {
-        flattened.push({
-          name,
-          area: e.area,
-          role
-        });
+    areaKeys.forEach(area => {
+      areas[area].forEach(o => {
+        if (o.header !== '섭외자보유') {
+          roleSet.add(o.header);
+          detail.push(`${name}(${area}구역) → ${o.header}`);
+        }
       });
     });
 
-    if (flattened.length < 2) return;
-
-    flattened.forEach(e => {
-      warningLines.push(
-        `${e.name}(${e.area}구역) → ${e.role}`
-      );
-    });
+    if (roleSet.size > 1) {
+      warningBlocks.push(detail.join('\n'));
+    }
   });
 
   const warnDiv = document.getElementById('warnings');
-  if (warningLines.length) {
+  if (warningBlocks.length) {
     warnDiv.style.display = 'block';
-    warnDiv.textContent =
-      '⚠️ 확인 필요 사항\n\n' +
-      [...new Set(warningLines)].join('\n');
+    warnDiv.textContent = '⚠️ 확인 필요 사항\n\n' + warningBlocks.join('\n\n');
   } else {
     warnDiv.style.display = 'none';
   }
@@ -196,9 +137,7 @@ function processReport() {
 
 function copyResult() {
   const text = document.getElementById('output').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    alert('✅ 복사가 완료되었습니다.');
-  });
+  navigator.clipboard.writeText(text).then(() => alert('✅ 복사가 완료되었습니다.'));
 }
 </script>
 </body>
