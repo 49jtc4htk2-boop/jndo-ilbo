@@ -32,72 +32,83 @@
 <script>
 function processReport() {
   const input = document.getElementById('input').value;
-  const lines = input.split(/\n/);
+  if (!input.trim()) return;
 
-  const headers = ['섭외자보유','당일 찾기','당일 섭외','당일 만남','당일 단계향상 만남','상담따기','말씀따기','센터확답'];
+  const lines = input.split('\n');
+
+  const headers = [
+    '섭외자보유','당일 찾기','당일 섭외',
+    '당일 만남','당일 단계향상 만남',
+    '상담따기','말씀따기','센터확답'
+  ];
+
   const totals = Array(headers.length).fill(0);
-  const nameMap = {}; // name -> [{area, column}]
-  const halfMap = {}; // name -> [{area, column}]
+  const nameMap = {};
+  const halfMap = {};
 
   let outputLines = [];
 
-  for (let line of lines) {
-    if (/^\d+\//.test(line)) {
-      const cols = line.split('/');
-      const area = cols[0];
-      headers.forEach((_, i) => {
-        const cell = cols[i + 2] || '0';
-        const matches = [...cell.matchAll(/([0-9.]+)\(([^)]+)\)/g)];
-        if (matches.length === 0) {
-          const val = parseFloat(cell);
-          if (!isNaN(val)) totals[i] += val;
-        } else {
-          matches.forEach(m => {
-            const val = parseFloat(m[1]);
-            totals[i] += val;
-            const rawName = m[2].replace(/[0-9.]/g,'').trim();
-            if (!nameMap[rawName]) nameMap[rawName] = [];
-            nameMap[rawName].push({ area, column: headers[i], value: val });
-            if (val === 0.5) {
-              if (!halfMap[rawName]) halfMap[rawName] = [];
-              halfMap[rawName].push({ area, column: headers[i] });
-            }
-          });
-        }
-      });
-    }
+  for (const line of lines) {
+    if (!/^\d+\//.test(line)) continue;
+
+    const cols = line.split('/');
+    const area = cols[0];
+
+    headers.forEach((_, i) => {
+      const cell = cols[i + 2] || '0';
+      const matches = [...cell.matchAll(/([0-9.]+)\(([^)]+)\)/g)];
+
+      if (matches.length === 0) {
+        const v = parseFloat(cell);
+        if (!isNaN(v)) totals[i] += v;
+      } else {
+        matches.forEach(m => {
+          const v = parseFloat(m[1]);
+          const name = m[2].replace(/[0-9.]/g, '').trim();
+          if (!isNaN(v)) totals[i] += v;
+
+          if (!nameMap[name]) nameMap[name] = [];
+          nameMap[name].push({ area, column: headers[i], value: v });
+
+          if (v === 0.5) {
+            if (!halfMap[name]) halfMap[name] = [];
+            halfMap[name].push({ area, column: headers[i] });
+          }
+        });
+      }
+    });
   }
 
-  // 종합 줄 생성
-  const totalLine = '종합/' + totals.map((v, i) => {
-    if (i >= 5) {
-      const names = Object.entries(nameMap)
-        .filter(([_, arr]) => arr.some(a => a.column === headers[i]))
-        .map(([name]) => name);
-      return names.length ? `${v}(${[...new Set(names)].join(' ')})` : `${v}`;
-    }
-    return `${v}`;
-  }).join('/');
+  const totalLine =
+    '종합/' +
+    totals.map((v, i) => {
+      if (i >= 5) {
+        const names = Object.entries(nameMap)
+          .filter(([_, arr]) => arr.some(a => a.column === headers[i]))
+          .map(([n]) => n);
+        return names.length ? `${v}(${[...new Set(names)].join(' ')})` : `${v}`;
+      }
+      return `${v}`;
+    }).join('/');
 
-  for (let line of lines) {
-    if (line.startsWith('종합/')) outputLines.push(totalLine);
-    else outputLines.push(line);
-  }
+  lines.forEach(l => {
+    if (l.startsWith('종합/')) outputLines.push(totalLine);
+    else outputLines.push(l);
+  });
 
   document.getElementById('output').textContent = outputLines.join('\n');
 
-  // 경고 생성 (가독성 개선 + 찾기/섭외 동일 구역 허용)
-  let warningBlocks = [];
+  // ===== 경고 =====
+  let warnings = [];
 
-  // 1) .5 단독 경고
   Object.entries(halfMap).forEach(([name, arr]) => {
     if (arr.length === 1) {
-      warningBlocks.push(`• ${name}
-  - ${arr[0].area}구역 → ${arr[0].column}`);
+      warnings.push(
+        `• ${name}\n  - ${arr[0].area}구역 → ${arr[0].column}`
+      );
     }
   });
 
-  // 2) 같은 이름, 다른 칸 중복 (단, 같은 구역의 '당일 찾기+당일 섭외'는 허용)
   Object.entries(nameMap).forEach(([name, arr]) => {
     const filtered = arr.filter(a => a.column !== '섭외자보유');
     if (filtered.length < 2) return;
@@ -108,57 +119,33 @@ function processReport() {
       byArea[a.area].add(a.column);
     });
 
-    let problemEntries = [];
-
+    let probs = [];
     Object.entries(byArea).forEach(([area, cols]) => {
-      const colList = [...cols];
-      // 허용: 같은 구역에서 '당일 찾기' + '당일 섭외'만 있는 경우
-      if (colList.length === 2 && colList.includes('당일 찾기') && colList.includes('당일 섭외')) return;
-      if (colList.length > 1) {
-        colList.forEach(c => problemEntries.push({ area, column: c }));
+      const list = [...cols];
+      if (
+        list.length === 2 &&
+        list.includes('당일 찾기') &&
+        list.includes('당일 섭외')
+      ) return;
+
+      if (list.length > 1) {
+        list.forEach(c => probs.push({ area, column: c }));
       }
     });
 
-    if (problemEntries.length) {
+    if (probs.length) {
       let block = `• ${name}`;
-      problemEntries.forEach(p => {
-        block += `
-  - ${p.area}구역 → ${p.column}`;
+      probs.forEach(p => {
+        block += `\n  - ${p.area}구역 → ${p.column}`;
       });
-      warningBlocks.push(block);
+      warnings.push(block);
     }
   });
 
   const warnDiv = document.getElementById('warnings');
-  if (warningBlocks.length) {
+  if (warnings.length) {
     warnDiv.style.display = 'block';
-    warnDiv.textContent = '⚠️ 확인 필요 사항
-
-' + warningBlocks.join('
-
-');
-  } else {
-    warnDiv.style.display = 'none';
-  }
-}
-  });
-
-  Object.entries(nameMap).forEach(([name, arr]) => {
-    const cols = new Set(arr.map(a => a.column));
-    if (cols.size > 1 && !cols.has('섭외자보유')) {
-      warningText += `• ${name}\n`;
-      arr.forEach(a => {
-        if (a.column !== '섭외자보유') {
-          warningText += `  - ${a.area}구역 → ${a.column}\n`;
-        }
-      });
-    }
-  });
-
-  const warnDiv = document.getElementById('warnings');
-  if (warningText.trim()) {
-    warnDiv.style.display = 'block';
-    warnDiv.textContent = '⚠️ 확인 필요 사항\n\n' + warningText;
+    warnDiv.textContent = '⚠️ 확인 필요 사항\n\n' + warnings.join('\n\n');
   } else {
     warnDiv.style.display = 'none';
   }
@@ -166,8 +153,10 @@ function processReport() {
 
 function copyResult() {
   const text = document.getElementById('output').textContent;
-  navigator.clipboard.writeText(text).then(() => alert('복사되었습니다!'));
+  if (!text) return;
+  navigator.clipboard.writeText(text);
 }
 </script>
+
 </body>
 </html>
