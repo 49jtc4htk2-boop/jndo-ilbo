@@ -14,165 +14,161 @@
   </style>
 </head>
 <body>
-  <h1>🍽️ 전도 활동 보고 종합 🍽️</h1>
 
-  <p>아래에 <b>보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
-  <textarea id="input"></textarea>
+<h1>🍽️ 전도 활동 보고 종합 🍽️</h1>
 
-  <div style="margin-top:10px;">
-    <button onclick="processReport()">❇️ 종합하기</button>
-    <button onclick="copyResult()">📋 결과 복사</button>
-  </div>
+<p>아래에 <b>보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
+<textarea id="input"></textarea>
 
-  <h3>📋 종합 결과</h3>
-  <div id="output" class="result"></div>
+<div style="margin-top:10px;">
+  <button onclick="processReport()">❇️ 종합하기</button>
+  <button onclick="copyResult()">📋 결과 복사</button>
+</div>
 
-  <div id="warnings" class="warning" style="display:none;"></div>
+<h3>📋 종합 결과</h3>
+<div id="output" class="result"></div>
+
+<div id="warnings" class="warning" style="display:none;"></div>
 
 <script>
-// ===== 설정 =====
-// .5는 '다른 구역과 함께함' 의미
-// 종합은 항상 정수로만 출력
-
-// ===== 파서 =====
+// ================= 파서 =================
 function parseLine(line) {
-  const parts = line.split('/');
+  const p = line.split('/');
   return {
-    zone: parts[0],
-    leader: parts[1],
-    has: parts[2],
-    find: parts[3],
-    invite: parts[4],
-    meet: parts[5],
-    step: parts[6],
-    counsel: parts[7],
-    word: parts[8],
-    center: parts[9]
+    zone: p[0],
+    has: p[2],
+    find: p[3],
+    invite: p[4],
+    meet: p[5],
+    step: p[6],
+    counsel: p[7],
+    word: p[8],
+    center: p[9]
   };
 }
 
-function extractNames(cell) {
+function extract(cell) {
   if (!cell || !cell.includes('(')) return [];
   const inside = cell.slice(cell.indexOf('(') + 1, cell.lastIndexOf(')'));
-  if (!inside.trim()) return [];
-
   return inside.split(/\s+/).map(v => {
-    const m = v.match(/(.+?)([0-9]+\.?5?)/);
+    const m = v.match(/^(.+?)([0-9]+\.5|[0-9]+)$/);
     if (!m) return null;
-    return {
-      name: m[1],
-      value: parseFloat(m[2])
-    };
+    return { name: m[1], value: parseFloat(m[2]) };
   }).filter(Boolean);
 }
 
-// ===== 데이터 구조 =====
+// ================= 인덱스 =================
 function buildIndex(rows) {
   const index = {};
+  const fields = ['find','invite','meet','step','counsel','word','center'];
 
   rows.forEach(r => {
-    const fields = ['find','invite','meet','step','counsel','word','center'];
     fields.forEach(f => {
-      extractNames(r[f]).forEach(e => {
+      extract(r[f]).forEach(e => {
         if (!index[e.name]) index[e.name] = [];
-        index[e.name].push({
-          zone: r.zone,
-          field: f,
-          value: e.value
-        });
+        index[e.name].push({ zone: r.zone, field: f, value: e.value });
       });
     });
   });
-
   return index;
 }
 
-// ===== 종합 계산 =====
-function sumCell(cell) {
+// ================= 종합 =================
+function cellSum(cell) {
   if (!cell) return 0;
-  const m = cell.match(/^[0-9]+(\.[05])?/);
+  const m = cell.match(/^[0-9]+(\.5)?/);
   return m ? Math.floor(parseFloat(m[0])) : 0;
 }
 
 function calcTotal(rows) {
-  const totals = {
-    has: 0, find: 0, invite: 0, meet: 0,
-    step: 0, counsel: 0, word: 0, center: 0
-  };
-
+  const t = { has:0, find:0, invite:0, meet:0, step:0, counsel:0, word:0, center:0 };
   rows.forEach(r => {
-    totals.has += sumCell(r.has);
-    totals.find += sumCell(r.find);
-    totals.invite += sumCell(r.invite);
-    totals.meet += sumCell(r.meet);
-    totals.step += sumCell(r.step);
-    totals.counsel += sumCell(r.counsel);
-    totals.word += sumCell(r.word);
-    totals.center += sumCell(r.center);
+    t.has += cellSum(r.has);
+    t.find += cellSum(r.find);
+    t.invite += cellSum(r.invite);
+    t.meet += cellSum(r.meet);
+    t.step += cellSum(r.step);
+    t.counsel += cellSum(r.counsel);
+    t.word += cellSum(r.word);
+    t.center += cellSum(r.center);
   });
-
-  return totals;
+  return t;
 }
 
-// ===== 경고 ① 역할 충돌 =====
+// ================= 경고 =================
 function roleConflict(index) {
-  const warnings = [];
-
+  let res = [];
   Object.entries(index).forEach(([name, logs]) => {
-    const zones = [...new Set(logs.map(l => l.zone))];
-    if (zones.length <= 1) return;
-
+    const zones = new Set(logs.map(l => l.zone));
     const fields = new Set(logs.map(l => l.field));
-    if (fields.size > 1) {
-      warnings.push({ name, detail: logs });
+    if (zones.size > 1 && fields.size > 1) {
+      res.push({ name, logs });
     }
   });
-
-  return warnings;
+  return res;
 }
 
-// ===== 경고 ② .5 단독 =====
 function halfSolo(index) {
-  const warnings = [];
-
+  let res = [];
   Object.entries(index).forEach(([name, logs]) => {
-    const halfLogs = logs.filter(l => l.value === 0.5);
-    if (halfLogs.length === 1) {
-      const l = halfLogs[0];
-      warnings.push({
-        name,
-        zone: l.zone,
-        field: l.field
-      });
-    }
+    const half = logs.filter(l => l.value === 0.5);
+    if (half.length === 1) res.push(half[0]);
   });
-
-  return warnings;
+  return res;
 }
 
-// ===== 실행 함수 =====
-function analyzeReport(text) {
+// ================= 실행 =================
+function processReport() {
+  const text = document.getElementById('input').value.trim();
+  if (!text) return alert('보고 내용을 붙여넣어 주세요.');
+
   const lines = text.split('\n').filter(l => /^\d+\//.test(l));
   const rows = lines.map(parseLine);
 
   const index = buildIndex(rows);
   const total = calcTotal(rows);
 
-  return {
-    total,
-    roleWarnings: roleConflict(index),
-    halfWarnings: halfSolo(index)
-  };
+  document.getElementById('output').textContent =
+    `종합/${total.has}/${total.find}/${total.invite}/${total.meet}/${total.step}/${total.counsel}/${total.word}/${total.center}`;
+
+  const warn = [];
+  const role = roleConflict(index);
+  const half = halfSolo(index);
+
+  if (role.length) {
+    let t = '🚨 기존 경고\n';
+    role.forEach(r => {
+      t += `\n• ${r.name}\n`;
+      r.logs.forEach(l => t += `  - ${l.zone}구역 → ${l.field}\n`);
+    });
+    warn.push(t);
+  }
+
+  if (half.length) {
+    let t = '🟡 누락 의심 명단\n';
+    half.forEach(h => {
+      t += `\n• ${h.name}.5 (${h.zone}구역) → ${h.field} : 몇 구역이랑 하셨나요?\n`;
+    });
+    warn.push(t);
+  }
+
+  const w = document.getElementById('warnings');
+  if (warn.length) {
+    w.style.display = 'block';
+    w.textContent = warn.join('\n\n');
+  } else {
+    w.style.display = 'none';
+  }
 }
 
-// ===== 사용 예 =====
-/*
-const result = analyzeReport(reportText);
-console.log('종합:', result.total);
-console.log('역할 충돌:', result.roleWarnings);
-console.log('보고 누락 의심:', result.halfWarnings);
-*/
-  
+function copyResult() {
+  const t = document.getElementById('output').textContent;
+  if (!t) return alert('복사할 결과가 없습니다.');
+  navigator.clipboard.writeText(t).then(() =>
+    alert('✅ 복사가 완료되었습니다.')
+  );
+}
 </script>
+
 </body>
 </html>
