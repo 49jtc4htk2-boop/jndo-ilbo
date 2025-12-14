@@ -10,17 +10,17 @@
     textarea { width:100%; min-height:220px; padding:12px; font-size:14px; box-sizing:border-box; }
     button { padding:10px 14px; font-size:14px; margin-right:8px; cursor:pointer; }
     .result { white-space:pre-wrap; background:#fff; padding:12px; margin-top:12px; border-radius:6px; }
-    .warning { margin-top:16px; padding:12px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; }
+    .warning { margin-top:16px; padding:12px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; white-space:pre-wrap; }
   </style>
 </head>
 <body>
   <h1>🌳 전도 일일 활동 보고 종합 🌳</h1>
 
-  <p>아래에 <b> 보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
+  <p>아래에 <b>보고 텍스트 전체</b>를 그대로 붙여넣으세요.</p>
   <textarea id="input"></textarea>
 
   <div style="margin-top:10px;">
-    <button onclick="processReport()">✅ 종합하기</button>
+    <button onclick="processReport()">종합하기</button>
     <button onclick="copyResult()">📋 결과 복사</button>
   </div>
 
@@ -34,14 +34,9 @@ function processReport() {
   const input = document.getElementById('input').value;
   if (!input.trim()) return;
 
-  const lines = input.split('\n');
+  const lines = input.split(/\n/);
 
-  const headers = [
-    '섭외자보유','당일 찾기','당일 섭외',
-    '당일 만남','당일 단계향상 만남',
-    '상담따기','말씀따기','센터확답'
-  ];
-
+  const headers = ['섭외자보유','당일 찾기','당일 섭외','당일 만남','당일 단계향상 만남','상담따기','말씀따기','센터확답'];
   const totals = Array(headers.length).fill(0);
   const nameMap = {};
   const halfMap = {};
@@ -64,11 +59,11 @@ function processReport() {
       } else {
         matches.forEach(m => {
           const v = parseFloat(m[1]);
-          const name = m[2].replace(/[0-9.]/g, '').trim();
           if (!isNaN(v)) totals[i] += v;
 
+          const name = m[2].replace(/[0-9.]/g, '').trim();
           if (!nameMap[name]) nameMap[name] = [];
-          nameMap[name].push({ area, column: headers[i], value: v });
+          nameMap[name].push({ area, column: headers[i] });
 
           if (v === 0.5) {
             if (!halfMap[name]) halfMap[name] = [];
@@ -79,17 +74,15 @@ function processReport() {
     });
   }
 
-  const totalLine =
-    '종합/' +
-    totals.map((v, i) => {
-      if (i >= 5) {
-        const names = Object.entries(nameMap)
-          .filter(([_, arr]) => arr.some(a => a.column === headers[i]))
-          .map(([n]) => n);
-        return names.length ? `${v}(${[...new Set(names)].join(' ')})` : `${v}`;
-      }
-      return `${v}`;
-    }).join('/');
+  const totalLine = '종합/' + totals.map((v, i) => {
+    if (i >= 5) {
+      const names = Object.entries(nameMap)
+        .filter(([_, arr]) => arr.some(a => a.column === headers[i]))
+        .map(([n]) => n);
+      return names.length ? `${v}(${[...new Set(names)].join(' ')})` : `${v}`;
+    }
+    return `${v}`;
+  }).join('/');
 
   lines.forEach(l => {
     if (l.startsWith('종합/')) outputLines.push(totalLine);
@@ -98,17 +91,17 @@ function processReport() {
 
   document.getElementById('output').textContent = outputLines.join('\n');
 
-  // ===== 경고 =====
-  let warnings = [];
+  // ===== 확인 필요 사항 =====
+  let warningBlocks = [];
 
+  // 1) .5 단독
   Object.entries(halfMap).forEach(([name, arr]) => {
     if (arr.length === 1) {
-      warnings.push(
-        `• ${name}\n  - ${arr[0].area}구역 → ${arr[0].column}`
-      );
+      warningBlocks.push(`• ${name}\n  - ${arr[0].area}구역 → ${arr[0].column}`);
     }
   });
 
+  // 2) 같은 이름, 다른 구역, 역할 구성이 다르면 경고
   Object.entries(nameMap).forEach(([name, arr]) => {
     const filtered = arr.filter(a => a.column !== '섭외자보유');
     if (filtered.length < 2) return;
@@ -119,33 +112,30 @@ function processReport() {
       byArea[a.area].add(a.column);
     });
 
-    let probs = [];
-    Object.entries(byArea).forEach(([area, cols]) => {
-      const list = [...cols];
-      if (
-        list.length === 2 &&
-        list.includes('당일 찾기') &&
-        list.includes('당일 섭외')
-      ) return;
+    const areas = Object.keys(byArea);
+    if (areas.length < 2) return;
 
-      if (list.length > 1) {
-        list.forEach(c => probs.push({ area, column: c }));
-      }
-    });
+    const base = [...byArea[areas[0]]].sort().join('|');
+    let diff = false;
 
-    if (probs.length) {
-      let block = `• ${name}`;
-      probs.forEach(p => {
-        block += `\n  - ${p.area}구역 → ${p.column}`;
-      });
-      warnings.push(block);
+    for (let i = 1; i < areas.length; i++) {
+      const cur = [...byArea[areas[i]]].sort().join('|');
+      if (cur !== base) { diff = true; break; }
     }
+
+    if (!diff) return;
+
+    let block = `• ${name}`;
+    Object.entries(byArea).forEach(([area, cols]) => {
+      block += `\n  - ${area}구역 → ${[...cols].join(', ')}`;
+    });
+    warningBlocks.push(block);
   });
 
   const warnDiv = document.getElementById('warnings');
-  if (warnings.length) {
+  if (warningBlocks.length) {
     warnDiv.style.display = 'block';
-    warnDiv.textContent = '⚠️ 확인 필요 사항\n\n' + warnings.join('\n\n');
+    warnDiv.textContent = '⚠️ 확인 필요 사항\n\n' + warningBlocks.join('\n\n');
   } else {
     warnDiv.style.display = 'none';
   }
@@ -157,6 +147,5 @@ function copyResult() {
   navigator.clipboard.writeText(text);
 }
 </script>
-
 </body>
 </html>
