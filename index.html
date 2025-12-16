@@ -8,9 +8,9 @@
     body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f7f7f7; padding:20px; }
     h1 { font-size: 1.4rem; }
     textarea { width:100%; min-height:220px; padding:12px; font-size:14px; box-sizing:border-box; }
-    button { padding:10px 14px; font-size:16px; margin-right:8px; cursor:pointer; }
+    button { padding:10px 14px; font-size:18px; margin-right:8px; cursor:pointer; }
     .result { white-space:pre-wrap; background:#fff; padding:12px; margin-top:12px; border-radius:6px; }
-    .warning { margin-top:16px; padding:12px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; }
+    .warning { margin-top:16px; padding:12px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; white-space:pre-wrap; }
   </style>
 </head>
 <body>
@@ -37,21 +37,36 @@ function processReport() {
   const headers = ['섭외자보유','당일 찾기','당일 섭외','당일 만남','당일 단계향상 만남','상담따기','말씀따기','센터확답'];
   const totals = Array(headers.length).fill(0);
 
-  // name -> area -> Set(columns)
   const roleMap = {};
   const halfRecords = {};
-
-  const dataRows = [];
+  const bracketIssues = []; // ✅ 괄호 합계 검증 결과만 저장
 
   // ===== 데이터 파싱 =====
   lines.forEach(line => {
     if (/^\d+\//.test(line)) {
       const cols = line.split('/');
       const area = cols[0];
-      const row = { area };
+
       headers.forEach((header, i) => {
-        row[header] = cols[i + 2] || '0';
-        const cell = row[header];
+        const cell = cols[i + 2] || '0';
+
+        // ✅ 괄호 합계 검증 (기존 로직 영향 없음)
+        const match = cell.match(/^([0-9.]+)\(([^)]+)\)$/);
+        if (match) {
+          const front = parseFloat(match[1]);
+          const names = match[2].trim().split(/\s+/);
+          let innerSum = 0;
+
+          names.forEach(n => {
+            const numMatch = n.match(/[0-9.]+$/);
+            innerSum += numMatch ? parseFloat(numMatch[0]) : 1;
+          });
+
+          if (Math.abs(front - innerSum) > 0.001) {
+            bracketIssues.push({ area, header, front, innerSum });
+          }
+        }
+
         const matches = [...cell.matchAll(/([0-9.]+)\(([^)]+)\)/g)];
         if (matches.length) {
           matches.forEach(m => {
@@ -74,13 +89,12 @@ function processReport() {
           totals[i] += parseFloat(cell) || 0;
         }
       });
-      dataRows.push(row);
     }
   });
 
   // ===== 종합 행 생성 =====
   let totalLine = '종합/' + totals.map((v,i) => {
-    if (i >= 5) { // 마지막 3개 칸 이름 포함
+    if (i >= 5) {
       const names = Object.entries(roleMap)
         .filter(([_, areas]) => Object.values(areas).some(set => set.has(headers[i])))
         .map(([name]) => name);
@@ -96,18 +110,27 @@ function processReport() {
   const warnings = [];
   Object.entries(roleMap).forEach(([name, areas]) => {
     const areaKeys = Object.keys(areas);
-    if (areaKeys.length < 2) return; // 한 구역만 있으면 경고 아님
-    const roleSets = areaKeys.map(a => ({ area: a, roles: new Set([...areas[a]].filter(r=>r!=='섭외자보유')) }));
-    const baseRoles = roleSets[0].roles;
+    if (areaKeys.length < 2) return;
+
+    const roleSets = areaKeys.map(a => ({
+      area: a,
+      roles: new Set([...areas[a]].filter(r => r !== '섭외자보유'))
+    }));
+
+    const base = roleSets[0].roles;
     let mismatch = false;
+
     roleSets.forEach(rs => {
-      if (rs.roles.size !== baseRoles.size) mismatch = true;
-      for (let r of rs.roles) if (!baseRoles.has(r)) mismatch = true;
+      if (rs.roles.size !== base.size) mismatch = true;
+      for (let r of rs.roles) if (!base.has(r)) mismatch = true;
     });
+
     if (mismatch) {
       let block = `${name}`;
       roleSets.forEach(rs => {
-        if (rs.roles.size) block += `\n- ${rs.area}구역 → ${[...rs.roles].join(', ')}`;
+        if (rs.roles.size) {
+          block += `\n- ${rs.area}구역 → ${[...rs.roles].join(', ')}`;
+        }
       });
       warnings.push(block);
     }
@@ -118,18 +141,26 @@ function processReport() {
   Object.entries(halfRecords).forEach(([name, recs]) => {
     if (recs.length === 1) {
       const r = recs[0];
-      halfWarnings.push(`${name}.5(${r.area}구역) → ${r.header}`);
+      let line = `${name}.5(${r.area}구역) → ${r.header}`;
+
+      const issue = bracketIssues.find(b => b.area === r.area && b.header === r.header);
+      if (issue) {
+        line += `\n└ 괄호 앞 숫자(${issue.front})와 괄호 합계(${issue.innerSum}) 불일치`;
+      }
+
+      halfWarnings.push(line);
     }
   });
 
   // ===== 출력 =====
   const warnDiv = document.getElementById('warnings');
   let warnText = '';
+
   if (warnings.length) {
     warnText += '🚨 기존 경고\n\n' + warnings.join('\n\n') + '\n\n';
   }
   if (halfWarnings.length) {
-    warnText += '⚠️ 누락 의심\n\n' + halfWarnings.join('\n');
+    warnText += '⚠️ 누락 의심\n\n' + halfWarnings.join('\n\n');
   }
 
   if (warnText) {
@@ -142,7 +173,7 @@ function processReport() {
 
 function copyResult() {
   const text = document.getElementById('output').textContent;
-  navigator.clipboard.writeText(text).then(()=> alert('✅ 복사가 완료되었습니다.'));
+  navigator.clipboard.writeText(text).then(() => alert('✅ 복사가 완료되었습니다.'));
 }
 </script>
 </body>
